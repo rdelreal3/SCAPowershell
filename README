@@ -1,0 +1,82 @@
+# MSSA Employee Onboarding, Identity Access, and Access Audit Tool
+
+This PowerShell project automates:
+
+`Workday Export -> Power Automate -> PowerShell Validation -> Active Directory -> OU/RBAC -> Read-only Access Audit -> CSV Reports`
+
+## Workday file and Power Automate
+
+Power Automate should monitor the Workday export folder. When a new file arrives, the flow calls `V1.ps1` with `-EmployeeFilePath`.
+
+Required CSV or JSON fields:
+
+`FirstName`, `LastName`, `JobTitle`, `Department`, `Manager`, `Location`, `Email`, `EmployeeType`, and `PhoneNumber`.
+
+Example:
+
+```powershell
+.\V1.ps1 `
+    -EmployeeFilePath 'C:\WorkdayExports\employee-1001.csv' `
+    -TemporaryPassword (Read-Host 'Temporary password' -AsSecureString)
+```
+
+The script also supports `-EmployeeJson` and individual parameters for local testing. It never prompts an administrator to fill in missing HR data. Workday remains the source of truth.
+
+## Nine project phases
+
+1. Receive the Workday employee information.
+2. Validate every required field and append missing-data exceptions to `OnboardingExceptions_YYYY-MM-DD.csv`.
+3. Test `DC1` with `Test-Connection` and collect OS data with `Get-CimInstance`.
+4. Check duplicate usernames or email addresses and create the AD account.
+5. Select an approved OU from the department and employee-type mapping. No mapping means no guessed OU.
+6. Assign role-based groups and record each assignment.
+7. Randomly sample existing users in the new employee's OU and perform a read-only access audit.
+8. Export onboarding and audit CSV reports for Excel.
+9. Display status, write the log, and handle failures with `try/catch/finally`.
+
+## Values to gather before use
+
+The domain is set to `contoso.com`. The following values are deliberately marked with `FILL_IN` in the configuration section of `V1.ps1`; replace them after gathering the information:
+
+- Domain Controller DNS name, for example `DC1.contoso.com`
+- Client computer name, for example `CLIENT1`
+- Server computer name, for example `SERVER1`
+- Existing report and log folder paths
+- HR Onboarding Director name, email address, and escalation contact
+- Approved OU distinguished names for each Department and EmployeeType combination
+- Approved Active Directory security group names for each department, employee type, and management role
+- Desired randomized audit sample size
+
+Do not replace the domain with `contoso.local`; the current project domain is `contoso.com`.
+
+## Lab configuration
+
+Edit the configuration at the beginning of `V1.ps1` for another environment:
+
+- Domain controller: `DC1`
+- Client system example: `CLIENT1`
+- Server example: `SERVER1`
+- Domain name and report/log folders
+- HR Onboarding Director contact
+- Random audit sample size
+- Approved OU distinguished names
+- Role-based security group names
+
+The OU and group values are intentionally placeholders until the environment details are gathered. The script will not guess an OU.
+
+## Reports
+
+- `Reports/OnboardingExceptions_YYYY-MM-DD.csv`: missing fields, required HR action, time, and error details.
+- `Reports/SuccessfulOnboarding.csv`: employee, username, OU, groups, actions, time, and completion status.
+- `Reports/OUAccessAudit_YYYY-MM-DD.csv`: sampled users, status, department, title, OU, groups, last logon, and review reasons.
+- `Logs/Onboarding.log`: concise success or failure entries.
+
+The access audit is read-only. It does not disable accounts, remove groups, delete users, or change audited employees.
+
+## Requirements
+
+Run from a management host with the ActiveDirectory module and appropriate permissions. The account creation path requires a secure temporary password. Use `-DryRun` to validate data and display planned account actions without creating the account.
+
+## Future cloud expansion
+
+Entra ID and Azure Virtual Desktop are intentionally future work. A later Power Automate or Azure Automation step can use Microsoft Graph or Az modules after approved authentication, subscriptions, host pools, images, networking, licensing, and RBAC are available. This project does not pretend those cloud resources are configured.
