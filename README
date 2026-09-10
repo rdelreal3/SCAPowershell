@@ -38,14 +38,6 @@ The script also supports `-EmployeeJson` and individual parameters for local tes
 
 The domain is set to `contoso.com`. The following values are deliberately marked with `FILL_IN` in the configuration section of `V1.ps1`; replace them after gathering the information:
 
-- Domain Controller DNS name, for example `DC1.contoso.com`
-- Client computer name, for example `CLIENT1`
-- Server computer name, for example `SERVER1`
-- Existing report and log folder paths
-- HR Onboarding Director name, email address, and escalation contact
-- Approved OU distinguished names for each Department and EmployeeType combination
-- Approved Active Directory security group names for each department, employee type, and management role
-- Desired randomized audit sample size
 
 Do not replace the domain with `contoso.local`; the current project domain is `contoso.com`.
 
@@ -53,23 +45,11 @@ Do not replace the domain with `contoso.local`; the current project domain is `c
 
 Edit the configuration at the beginning of `V1.ps1` for another environment:
 
-- Domain controller: `DC1`
-- Client system example: `CLIENT1`
-- Server example: `SERVER1`
-- Domain name and report/log folders
-- HR Onboarding Director contact
-- Random audit sample size
-- Approved OU distinguished names
-- Role-based security group names
 
 The OU and group values are intentionally placeholders until the environment details are gathered. The script will not guess an OU.
 
 ## Reports
 
-- `Reports/OnboardingExceptions_YYYY-MM-DD.csv`: missing fields, required HR action, time, and error details.
-- `Reports/SuccessfulOnboarding.csv`: employee, username, OU, groups, actions, time, and completion status.
-- `Reports/OUAccessAudit_YYYY-MM-DD.csv`: sampled users, status, department, title, OU, groups, last logon, and review reasons.
-- `Logs/Onboarding.log`: concise success or failure entries.
 
 The access audit is read-only. It does not disable accounts, remove groups, delete users, or change audited employees.
 
@@ -80,3 +60,111 @@ Run from a management host with the ActiveDirectory module and appropriate permi
 ## Future cloud expansion
 
 Entra ID and Azure Virtual Desktop are intentionally future work. A later Power Automate or Azure Automation step can use Microsoft Graph or Az modules after approved authentication, subscriptions, host pools, images, networking, licensing, and RBAC are available. This project does not pretend those cloud resources are configured.
+
+This project processes one Workday-style employee record at a time and performs a controlled Active Directory onboarding workflow.
+
+`Workday CSV or JSON -> Validation -> LON-DC1 check -> Department-based OU -> Duplicate check -> AD account -> Read-only audit -> Reports and logs`
+
+## Project files
+
+- `V2.ps1`: Main working PowerShell onboarding script.
+- `V2.Present.ps1`: Presentation copy with beginner-friendly comments. Its executable PowerShell code matches `V2.ps1`.
+- `V1.ps1`: Earlier project version retained for reference.
+
+## Confirmed lab configuration
+
+- Execution host: `LON-SVR1`
+- Script path: `C:\Automation\V2.ps1`
+- Domain Controller: `LON-DC1`
+- Active Directory domain: `Adatum.com`
+- Client workstation: `LON-CL1`
+- Workday folder: `\\LON-SVR1\WorkdayExports`
+- Report folder: `\\LON-SVR1\ITReports`
+- Log folder: `\\LON-SVR1\ITReports\Logs`
+- HR contact: Jordan Mitchell, HR Onboarding Director, `jordan.mitchell@adatum.com`, `(555) 014-7284`
+- Default audit sample size: `3`
+
+The script verifies the existing report share. It creates only the missing `Logs` subfolder and does not attempt to create or modify the SMB share.
+
+## Workflow
+
+The project retains its nine-phase structure for presentation and reporting. The meaningful operational flow is:
+
+1. Receive exactly one employee record from a CSV, JSON value, or parameters.
+2. Validate the required employee information and write an exception report if data is missing.
+3. Test `LON-DC1` and collect operating-system information with `Get-CimInstance`.
+4. Validate the employee's Department-based OU before account creation. The approved Department values are `Development`, `IT`, `HR`, `Marketing`, `Research`, and `Sales`.
+5. Generate a username, check duplicate username and email values, and create the account directly in the validated OU.
+6. Complete account setup without automatic security-group assignment.
+7. Perform a randomized, read-only audit of existing users in the new employee's OU.
+8. Append onboarding and daily audit results to CSV reports.
+9. Display status and write failure reports and durable logs.
+
+Phase 5 is called before Phase 4 in the executable workflow so the target OU is validated before `New-ADUser` runs. The script does not guess, create, or use a default OU.
+
+## Employee input
+
+The preferred input is one CSV file passed with `-EmployeeFilePath`. The file must contain exactly one employee record.
+
+Required fields:
+
+`FirstName`, `LastName`, `JobTitle`, `Department`, `Manager`, `Location`, `Email`, and `PhoneNumber`
+
+Optional fields:
+
+`EmployeeType` and `EmployeeId`
+
+`EmployeeType` is imported when present but is not used for OU placement, permissions, or security groups.
+
+The script also supports `-EmployeeJson` and individual parameters for testing. Workday remains the source of truth. Folder monitoring and Task Scheduler automation are future work and are not included in `V2.ps1`.
+
+## Dry run
+
+Run from `C:\Automation` on `LON-SVR1`:
+
+```powershell
+Set-Location 'C:\Automation'
+.\V2.ps1 -EmployeeFilePath '\\LON-SVR1\WorkdayExports\Workday_NewEmployee_Sample.csv' -DryRun
+```
+
+DryRun imports the record, validates required fields, checks report/log paths, tests `LON-DC1`, collects CIM information, verifies the Department OU, checks duplicate accounts, and displays the username and OU that would be used.
+
+DryRun does not create an AD user, generate or display an initial password, modify AD, perform account creation, or write a successful onboarding record.
+
+## Real onboarding
+
+The real run no longer requires a password parameter. After duplicate checking, the script generates a unique initial password with uppercase letters, lowercase letters, numbers, and special characters. It converts the password to a `SecureString`, creates an enabled account directly in the validated OU, and sets `ChangePasswordAtLogon` to `$true`.
+
+For this lab, the initial password is displayed once in the PowerShell console after successful account creation. It is not written to reports, logs, or configuration.
+
+```powershell
+Set-Location 'C:\Automation'
+.\V2.ps1 -EmployeeFilePath '\\LON-SVR1\WorkdayExports\Workday_NewEmployee_Sample.csv'
+```
+
+## Reports and logs
+
+All output is written under `\\LON-SVR1\ITReports`:
+
+- `SuccessfulOnboarding.csv`: successful employee name, username, OU, actions, time, and status.
+- `OnboardingExceptions_YYYY-MM-DD.csv`: missing fields and the action HR must take.
+- `OnboardingFailures_YYYY-MM-DD.csv`: caught failures and required review action.
+- `OUAccessAudit_YYYY-MM-DD.csv`: read-only sampled-user results. Existing daily results are preserved by appending new rows.
+- `Logs\Onboarding.log`: durable success or failure entries.
+
+The audit uses `Get-ADUser`, `Where-Object`, `Get-Random`, and `Get-ADPrincipalGroupMembership` to read information only. It does not disable users, delete accounts, move existing users, remove memberships, change permissions, or modify audited users.
+
+## Permissions and prerequisites
+
+The intended automation identity is `ADATUM\OnboardingAutomation`. Its password is not stored in the scripts. It requires read access to `\\LON-SVR1\WorkdayExports`, modify/write access to `\\LON-SVR1\ITReports`, and delegated Active Directory permissions to query users, read OUs, create users in approved OUs, and read audit information. It should not be made a Domain Admin.
+
+The execution host requires:
+
+- Windows PowerShell 5.1.
+- The ActiveDirectory PowerShell module.
+- Network connectivity to `LON-DC1`.
+- CIM access to `LON-DC1`.
+- Read access to the Workday input file.
+- Permission to write reports and logs.
+
+No Power Automate, folder watcher, Task Scheduler, cloud, or security-group assignment code is included in the current workflow.

@@ -12,8 +12,8 @@
 # PHASE 1: Receives one employee record from a CSV, JSON value, or parameters.
 # PHASE 2: Checks required employee information and records missing fields.
 # PHASE 3: Tests LON-DC1 and collects basic operating-system information.
-# PHASE 4: Builds a username, checks for duplicates, and creates the account.
 # PHASE 5: Uses Department to find and validate the employee's Active Directory OU.
+# PHASE 4: Builds a username, checks for duplicates, and creates the account in that OU.
 # PHASE 6: Confirms account setup is complete without assigning security groups.
 # PHASE 7: Reads a small random sample of existing OU users for review.
 # PHASE 8: Saves onboarding, audit, exception, and failure information as CSV files.
@@ -28,9 +28,12 @@
 # finally handle success, errors, and logging. The main workflow at the bottom
 # calls the phases in order and passes information from one phase to the next.
 #
-# The result is a simple flow:
-# Workday record -> validation -> LON-DC1 check -> Department-based OU ->
-# duplicate check -> Active Directory account -> read-only audit -> reports and log.
+# The phase numbers remain part of the original project structure. For safety, the
+# main workflow runs Phase 5 before Phase 4: it validates the OU before account creation.
+# The result is:
+# Workday record -> validation -> LON-DC1 check -> validated Department-based OU ->
+# duplicate check -> Active Directory account -> account setup -> read-only audit ->
+# reports and log.
 # ============================================================================
 [CmdletBinding()]
 param(
@@ -280,7 +283,8 @@ function Test-DomainController {
 # Duplicate accounts are blocked, and each real account receives a new initial password.
 #
 # NEXT:
-# Sends the created account name to Phase 6 for completion status.
+# After Phase 5 has validated the destination, this phase creates the account and
+# sends its name to Phase 6 for completion status.
 # ============================================================================
 function New-EmployeeUsername {
     param([psobject]$Employee)
@@ -385,7 +389,8 @@ function New-EmployeeAccount {
 # The correct OU must be known before Phase 4 creates the account.
 #
 # NEXT:
-# Sends the validated OU address to Phase 4 for direct account creation.
+# Sends the validated OU address to Phase 4 for direct account creation. Although
+# Phase 5 appears later in the file, the main workflow calls it before Phase 4.
 # ============================================================================
 function Get-EmployeeOu {
     param([psobject]$Employee)
